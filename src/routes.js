@@ -8,12 +8,11 @@ const {
   updateUserData,
   getUserData,
   getDestinations,
+  getFavoriteDestinations,
   addFavoritDestination,
   removeFavoritDestination,
   getCulinary,
-  getDataHandler,
-  addDataHandler,
-  updateDataHandler,
+  bookingNewTrip
 } = require('./handlers');
 
 const routes = [
@@ -58,13 +57,18 @@ const routes = [
     handler: getDestinations,
   },
   {
+    method: 'GET',
+    path: '/favorites/{userId}',
+    handler: getFavoriteDestinations,
+  },
+  {
     method: 'POST',
     path: '/favorites',
     handler: addFavoritDestination,
   },
   {
     method: 'DELETE',
-    path: '/favorites/{user_id}/{destination_id}',
+    path: '/favorites/{userId}/{destinationId}',
     handler: removeFavoritDestination,
   },
   {
@@ -73,19 +77,9 @@ const routes = [
     handler: getCulinary,
   },
   {
-    method: 'GET',
-    path: '/api/data',
-    handler: getDataHandler,
-  },
-  {
     method: 'POST',
-    path: '/api/data',
-    handler: addDataHandler,
-  },
-  {
-    method: 'PUT',
-    path: '/api/data/{id}',
-    handler: updateDataHandler,
+    path: '/booking',
+    handler: bookingNewTrip,
   },
 ];
 

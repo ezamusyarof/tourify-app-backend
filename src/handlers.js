@@ -1,5 +1,6 @@
 // src/handlers.js
 const nodemailer = require('nodemailer');
+const crypto = require('crypto');
 const queryDatabase = require('./db');
 
 const registrationUser = async (request, h) => {
@@ -10,7 +11,20 @@ const registrationUser = async (request, h) => {
     if(Object.keys(results1).length === 0){
       const usernameByEmail = email.split('@')[0];
       const username = usernameByEmail.replace(/\./g, '-');
-      const query2 = 'SELECT code_verif FROM data_pengguna';
+      // generate id
+      const queryId = 'SELECT MAX(id % 1000) AS lastId FROM data_pengguna;';
+      const resultsId = await queryDatabase(queryId);
+      const randomNum = Math.floor(Math.random() * 9) + 1;
+      const currentYear = new Date().getFullYear() % 100;
+      const formattedYear = String(currentYear).padStart(2, '0');
+      const currentMonth = new Date().getMonth() + 1;
+      const formattedMonth = String(currentMonth).padStart(2, '0');
+      const currentId = resultsId[0].lastId + 1;
+      const formattedId = String(currentId).padStart(3, '0');
+      const finalId = `${randomNum}${formattedYear}${formattedMonth}${1}${formattedId}`;
+      console.log(finalId);
+      // send code
+      const query2 = 'SELECT codeVerif FROM data_pengguna';
       const results2 = await queryDatabase(query2);
       const existingCodes = results2.map(row => row.code_verif);
       let code_verif;
@@ -41,14 +55,13 @@ const registrationUser = async (request, h) => {
           console.log('Email sent: ' + info.response);
         }
       });
-      const query3 = 'INSERT INTO data_pengguna (email, username, code_verif) VALUES (?, ?, ?)';
-      const results3 = await queryDatabase(query3, [email, username, code_verif]);
-      const query4 = 'UPDATE data_pengguna SET registration_date = CURRENT_TIMESTAMP WHERE email=?';
-      const results4 = await queryDatabase(query4, [emal]);
+      const query3 = 'INSERT INTO data_pengguna (id, email, username, codeVerif) VALUES (?, ?, ?, ?)';
+      const results3 = await queryDatabase(query3, [finalId, email, username, code_verif]);
+      const query4 = 'UPDATE data_pengguna SET registrationDate = CURRENT_TIMESTAMP WHERE email=?';
+      const results4 = await queryDatabase(query4, [email]);
       return h.response({
         statusCode: 200,
-        message: 'User registration successfully',
-        data: { email: email }
+        message: 'User registration successfully'
       }).code(200);
     }
     return h.response({
@@ -57,22 +70,25 @@ const registrationUser = async (request, h) => {
       message: 'Email already exists'
     }).code(400);
   } catch (err) {
-    return h.response({ error: err.message }).code(500);
+    return h.response({ 
+      statusCode: 500, 
+      error: "Internal Server Error",
+      message: err.message
+    }).code(500);
   }
 };
 
 const verificationUser = async (request, h) => {
   try {
-    const { email, code_verif } = JSON.parse(request.payload);
-    const query1 = 'SELECT * FROM data_pengguna WHERE email=? AND code_verif=?';
-    const results1 = await queryDatabase(query1, [email, code_verif]);
+    const { email, codeVerif } = JSON.parse(request.payload);
+    const query1 = 'SELECT * FROM data_pengguna WHERE email=? AND codeVerif=?';
+    const results1 = await queryDatabase(query1, [email, codeVerif]);
     if(Object.keys(results1).length !== 0){
-      const query2 = 'UPDATE data_pengguna SET verification_date = CURRENT_TIMESTAMP WHERE email=?';
+      const query2 = 'UPDATE data_pengguna SET verificationDate = CURRENT_TIMESTAMP WHERE email=?';
       const results2 = await queryDatabase(query2, [email]);
       return h.response({
         statusCode: 200,
-        message: 'User verification successfully',
-        data: { email: email }
+        message: 'User verification successfully'
       }).code(200);
     }
     return h.response({
@@ -81,22 +97,33 @@ const verificationUser = async (request, h) => {
       message: 'Incorrect verification code'
     }).code(400);
   } catch (err) {
-    return h.response({ error: err.message }).code(500);
+    return h.response({
+      statusCode: 500, 
+      error: "Internal Server Error", 
+      message: err.message 
+    }).code(500);
   }
 };
 
 const loginUser = async (request, h) => {
   try {
     const { email, password } = JSON.parse(request.payload);
+    const passwordSecured = crypto.createHash('md5').update(password).digest('hex');
     const query1 = 'SELECT * FROM data_pengguna WHERE email=? AND password=?';
-    const results1 = await queryDatabase(query1, [email, password]);
+    const results1 = await queryDatabase(query1, [email, passwordSecured]);
+    console.log(passwordSecured);
     if(Object.keys(results1).length !== 0){
-      const query2 = 'UPDATE data_pengguna SET last_login_date = CURRENT_TIMESTAMP WHERE email=?';
+      const query2 = 'UPDATE data_pengguna SET lastLoginDate = CURRENT_TIMESTAMP WHERE email=?';
       const results2 = await queryDatabase(query2, [email]);
+      const query3 = 'SELECT id FROM data_pengguna WHERE email = ?';
+      const results3 = await queryDatabase(query3, [email]);
       return h.response({
         statusCode: 200,
         message: 'Login succesfully',
-        data: { email: email }
+        data: { 
+          userId: results3[0].id,
+          email: email 
+        }
       }).code(200);
     }
     return h.response({
@@ -105,21 +132,31 @@ const loginUser = async (request, h) => {
       message: 'Incorrect password'
     }).code(400);
   } catch (err) {
-    return h.response({ error: err.message }).code(500);
+    return h.response({
+      statusCode: 500, 
+      error: "Internal Server Error", 
+      message: err.message 
+    }).code(500);
   }
 };
 
 const logoutUser = async (request, h) => {
   try {
     const { email } = JSON.parse(request.payload);
-    const query = 'UPDATE data_pengguna SET last_logout_date = CURRENT_TIMESTAMP WHERE email=?';
+    const query = 'UPDATE data_pengguna SET lastLogoutDate = CURRENT_TIMESTAMP WHERE email=?';
     const results = await queryDatabase(query, [email]);
     console.log(results.changedRows);
-    return h.response({
-      statusCode: 200,
-      message: 'Logout succesfully',
-      data: { email: email }
-    }).code(200);
+    if (results.changedRows !== 0){
+      return h.response({
+        statusCode: 200,
+        message: 'Logout succesfully'
+      }).code(200);
+    } else{
+      return h.response({
+        statusCode: 400,
+        error: 'Logout failed'
+      }).code(400);
+    }
   } catch (err) {
     return h.response({ error: err.message }).code(500);
   }
@@ -129,12 +166,19 @@ const updateUserPassword = async (request, h) => {
   try {
     const { email } = request.params;
     const { password } = JSON.parse(request.payload);
-    const query = 'UPDATE data_pengguna SET password = ? WHERE email = ?';
-    const results = await queryDatabase(query, [password, email]);
+    const passwordSecured = crypto.createHash('md5').update(password).digest('hex');
+    console.log(passwordSecured);
+    const query1 = 'UPDATE data_pengguna SET password = ? WHERE email = ?';
+    const results1 = await queryDatabase(query1, [passwordSecured, email]);
+    const query2 = 'SELECT id FROM data_pengguna WHERE email = ?';
+    const results2 = await queryDatabase(query2, [email]);
     return h.response({
       statusCode: 200,
       message: 'Update password succesfully',
-      data: { email: email }
+      data: { 
+        userId: results2[0].id,
+        email: email 
+      }
     }).code(200);
   } catch (err) {
     return h.response({ error: err.message }).code(500);
@@ -180,6 +224,7 @@ const getDestinations = async (request, h) => {
   try {
     const query = 'SELECT * FROM data_wisata';
     const results = await queryDatabase(query);
+    const totalCulinary = 3;
     return h.response({
       statusCode: 200,
       message: 'Success',
@@ -190,14 +235,30 @@ const getDestinations = async (request, h) => {
   }
 };
 
+const getFavoriteDestinations = async (request, h) => {
+  try {
+    const { userId } = request.params;
+    const query = 'SELECT destinationId FROM data_wisata_favorit WHERE userId = ?';
+    const results = await queryDatabase(query, [userId]);
+    const data = results.map(item => item.destinationId);
+    return h.response({
+      statusCode: 200,
+      message: 'Success',
+      data: data
+    }).code(200);
+  } catch (err) {
+    return h.response({ error: err.message }).code(500);
+  }
+};
+
 const addFavoritDestination = async (request, h) => {
   try {
-    const { user_id, destination_id } = JSON.parse(request.payload);
-    const query1 = 'SELECT * FROM data_wisata_favorit WHERE user_id=? AND destination_id=?';
-    const results1 = await queryDatabase(query1, [user_id, destination_id]);
-    console.log(user_id, destination_id, results1);
-    const query2 = 'INSERT INTO data_wisata_favorit (destination_id, user_id, date_update) VALUES (?, ?, CURRENT_TIMESTAMP)'
-    await queryDatabase(query2, [destination_id, user_id]);
+    const { userId, destinationId } = JSON.parse(request.payload);
+    const query1 = 'SELECT * FROM data_wisata_favorit WHERE userId=? AND destinationId=?';
+    const results1 = await queryDatabase(query1, [userId, destinationId]);
+    console.log(userId, destinationId, results1);
+    const query2 = 'INSERT INTO data_wisata_favorit (destinationId, userId) VALUES (?, ?)'
+    await queryDatabase(query2, [destinationId, userId]);
     return h.response({
       statusCode: 200,
       message: 'Added destination to favorites succesfully'
@@ -209,9 +270,9 @@ const addFavoritDestination = async (request, h) => {
 
 const removeFavoritDestination = async (request, h) => {
   try {
-    const { user_id, destination_id } = request.params;
-    const query1 = 'DELETE FROM data_wisata_favorit WHERE user_id=? AND destination_id=?';
-    const results1 = await queryDatabase(query1, [user_id, destination_id]);
+    const { userId, destinationId } = request.params;
+    const query1 = 'DELETE FROM data_wisata_favorit WHERE userId=? AND destinationId=?';
+    const results1 = await queryDatabase(query1, [userId, destinationId]);
     return h.response({
       statusCode: 200,
       message: 'Removed destination from favorites succesfully'
@@ -235,34 +296,41 @@ const getCulinary = async (request, h) => {
   }
 };
 
-const getDataHandler = async (request, h) => {
+const bookingNewTrip = async (request, h) => {
   try {
-    const query = 'SELECT * FROM data_wisata';
-    const results = await queryDatabase(query);
-    return results;
-  } catch (err) {
-    return h.response({ error: err.message }).code(500);
-  }
-};
-
-const addDataHandler = async (request, h) => {
-  try {
-    const { field1, field2 } = request.payload;
-    const query = 'INSERT INTO nama_tabel (field1, field2) VALUES (?, ?)';
-    const results = await queryDatabase(query, [field1, field2]);
-    return { message: 'Data added successfully' };
-  } catch (err) {
-    return h.response({ error: err.message }).code(500);
-  }
-};
-
-const updateDataHandler = async (request, h) => {
-  try {
-    const { id } = request.params;
-    const { field1, field2 } = request.payload;
-    const query = 'UPDATE nama_tabel SET field1 = ?, field2 = ? WHERE id = ?';
-    const results = await queryDatabase(query, [field1, field2, id]);
-    return { message: 'Data updated successfully' };
+    const { 
+      userId, 
+      destinationId,
+      tourGuideId,
+      name,
+      email,
+      telephone,
+      tripDate,
+      note
+    } = JSON.parse(request.payload);
+    const now = new Date();
+    const bookingCode = `TRF${now.getFullYear().toString().slice(-2)}${('0' + (now.getMonth() + 1)).slice(-2)}${('0' + now.getDate()).slice(-2)}${('0' + now.getHours()).slice(-2)}${('0' + now.getMinutes()).slice(-2)}${('0' + now.getSeconds()).slice(-2)}${userId}`;
+    console.log(bookingCode);
+    const query3 = 'SELECT ticketPrice FROM data_wisata WHERE id = ?'
+    const results3 = await queryDatabase(query3, [destinationId]);
+    const totalPayment = results3[0].ticketPrice;
+    const query1 = 'INSERT INTO data_booking (userId, destinationId, tourGuideId, bookingCode, tripDate, totalPayment, ordererNote, bookingDate) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)'
+    await queryDatabase(query1, [userId, destinationId, tourGuideId, bookingCode, tripDate, totalPayment, note]);
+    const query2 = 'SELECT * FROM data_booking WHERE bookingCode = ?'
+    await queryDatabase(query2, [bookingCode]);
+    let withTourGuide = true;
+    if(tourGuideId == 0){ withTourGuide = false; }
+    return h.response({
+      statusCode: 200,
+      message: 'Trip booked',
+      data: {
+        id: 1,
+        code: bookingCode,
+        total: totalPayment,
+        withTourGuide: withTourGuide,
+        statusPayment: 0
+      }
+    }).code(200);
   } catch (err) {
     return h.response({ error: err.message }).code(500);
   }
@@ -277,10 +345,9 @@ module.exports = {
   updateUserData,
   getUserData,
   getDestinations,
+  getFavoriteDestinations,
   addFavoritDestination,
   removeFavoritDestination,
   getCulinary,
-  getDataHandler, 
-  addDataHandler, 
-  updateDataHandler 
+  bookingNewTrip 
 };
